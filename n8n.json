@@ -1,0 +1,279 @@
+{
+  "name": "PyPI Remediation - Extended (Importable)",
+  "nodes": [
+    {
+      "id": "webhook-start",
+      "name": "Webhook-Remediate",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [160, 80],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "remediate",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "http-enqueue",
+      "name": "HTTP Request (enqueue)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [420, 80],
+      "parameters": {
+        "method": "POST",
+        "url": "http://remediate:8000/jobs",
+        "sendBody": true,
+        "jsonParameters": false,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "mode", "value": "={{$json[\"body\"].mode}}" },
+            { "name": "input", "value": "={{$json[\"body\"].input}}" },
+            { "name": "callback_url", "value": "={{$json[\"body\"].callback_url || ''}}" }
+          ]
+        },
+        "options": { "timeout": 900000 }
+      }
+    },
+    {
+      "id": "respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [660, 80],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$node[\"HTTP Request (enqueue)\"].json}}"
+      }
+    },
+    {
+      "id": "webhook-callback",
+      "name": "Job Callback (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [160, 360],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "job-callback",
+        "responseMode": "onReceived"
+      }
+    },
+    {
+      "id": "fn-hmac",
+      "name": "HMAC Verify (Function)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [420, 360],
+      "parameters": {
+        "functionCode": "return items;"
+      }
+    },
+    {
+      "id": "fn-fetch",
+      "name": "Fetch Artifacts (Function)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [660, 360],
+      "parameters": {
+        "functionCode": "return items;"
+      }
+    },
+    {
+      "id": "fn-build",
+      "name": "Build LLM Prompt (Function)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 360],
+      "parameters": {
+        "functionCode": "return items;"
+      }
+    },
+    {
+      "id": "openai",
+      "name": "LLM Suggestion (OpenAI)",
+      "type": "n8n-nodes-base.openAI",
+      "typeVersion": 1,
+      "position": [1140, 360],
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "temperature": 0,
+        "topP": 1,
+        "frequencyPenalty": 0,
+        "presencePenalty": 0,
+        "maxTokens": 800,
+        "prompt": "={{$json[\"system_prompt\"]}}\\n\\n{{JSON.stringify($json[\"user_payload\"])}}"
+      }
+    },
+    {
+      "id": "fn-parse",
+      "name": "Parse & Validate LLM (Function)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1380, 360],
+      "parameters": {
+        "functionCode": "return items;"
+      }
+    },
+    {
+      "id": "if-decision",
+      "name": "Decision - Auto-apply?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1620, 360],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"parsed\"] && $json[\"parsed\"].confidence >= 0.85}}",
+              "value2": "true"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "gh-create-branch",
+      "name": "GitHub: Create Branch",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [1860, 240],
+      "parameters": {
+        "operation": "create",
+        "branchName": "={{'remediation-' + ($json[\"parsed\"] && $json[\"parsed\"].suggested_changes && $json[\"parsed\"].suggested_changes[0] && $json[\"parsed\"].suggested_changes[0].pkg || $json[\"callback\"].job_id)}}",
+        "baseBranch": "main"
+      }
+    },
+    {
+      "id": "gh-commit",
+      "name": "GitHub: Commit File",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [1860, 360],
+      "parameters": {
+        "operation": "create",
+        "repository": "your/repo",
+        "branch": "={{$node[\"GitHub: Create Branch\"].json[\"name\"]}}",
+        "fileContent": "={{JSON.stringify($json[\"parsed\"].updated_package, null, 2)}}",
+        "filePath": "updated_package.json",
+        "commitMessage": "chore(remediation): apply suggested updates (job {{$json[\"callback\"].job_id}})"
+      }
+    },
+    {
+      "id": "gh-pr",
+      "name": "GitHub: Create PR",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [2100, 300],
+      "parameters": {
+        "operation": "create",
+        "repository": "your/repo",
+        "title": "={{'Remediation: ' + ($json[\"parsed\"] && $json[\"parsed\"].suggested_changes && $json[\"parsed\"].suggested_changes[0] && $json[\"parsed\"].suggested_changes[0].pkg || '') + ' (job ' + ($json[\"callback\"].job_id || '') + ')'}}",
+        "body": "={{($json[\"parsed\"].explanation || '') + '\\n\\nReport: ' + ($json[\"callback\"].artifacts && $json[\"callback\"].artifacts.report_md || '')}}",
+        "head": "={{$node[\"GitHub: Create Branch\"].json[\"name\"]}}",
+        "base": "main"
+      }
+    },
+    {
+      "id": "slack-notify",
+      "name": "Slack: Notify",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [2340, 360],
+      "parameters": {
+        "operation": "postMessage",
+        "resource": "chat.postMessage",
+        "text": "Remediation job {{$json[\"callback\"].job_id}}: PR created: {{$node[\"GitHub: Create PR\"].json[\"html_url\"]}}",
+        "channel": "#security"
+      }
+    }
+  ],
+  "connections": {
+    "webhook-start": {
+      "main": [
+        [
+          { "node": "http-enqueue", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "http-enqueue": {
+      "main": [
+        [
+          { "node": "respond", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "webhook-callback": {
+      "main": [
+        [
+          { "node": "fn-hmac", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "fn-hmac": {
+      "main": [
+        [
+          { "node": "fn-fetch", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "fn-fetch": {
+      "main": [
+        [
+          { "node": "fn-build", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "fn-build": {
+      "main": [
+        [
+          { "node": "openai", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "openai": {
+      "main": [
+        [
+          { "node": "fn-parse", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "fn-parse": {
+      "main": [
+        [
+          { "node": "if-decision", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "if-decision": {
+      "main": [
+        [
+          { "node": "gh-create-branch", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "slack-notify", "type": "main", "index": 1 }
+        ]
+      ]
+    },
+    "gh-create-branch": {
+      "main": [
+        [
+          { "node": "gh-commit", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "gh-commit": {
+      "main": [
+        [
+          { "node": "gh-pr", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "gh-pr": {
+      "main": [
+        [
+          { "node": "slack-notify", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "active": false
+}

@@ -1,0 +1,7 @@
+{
+  "urllib3": ["httpx"],
+  "requests": ["httpx"],
+  "django-redis": ["aioredis", "redis"],
+  "PyYAML": ["ruamel.yaml"],
+  "cryptography": ["pyca/cryptography"]
+}

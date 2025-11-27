@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+requests
+structlog
+redis
+rq
+python-dotenv
+pydantic
+jinja2
+pip-audit
+packaging

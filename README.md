@@ -44,7 +44,7 @@ The system consists of four main services orchestrated by Docker Compose:
     Clone the repository and start the services in detached mode:
 
     ```bash
-    git clone [https://github.com/yourusername/remediate-workflow.git](https://github.com/yourusername/remediate-workflow.git)
+    git clone [https://github.com/callingramani/remediate-workflow.git](https://github.com/callingramani/remediate-workflow.git)
     cd remediate-workflow
 
     # Build and start services in the background
